@@ -14,7 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      match_queue: {
+        Row: {
+          created_at: string
+          domain: string
+          email: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          domain: string
+          email: string
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          domain?: string
+          email?: string
+          id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
