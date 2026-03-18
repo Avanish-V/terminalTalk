@@ -7,26 +7,19 @@ const searchLines = [
   "[FILTERING: TECH INDUSTRY ONLY]",
 ];
 
-const MatchingScreen = ({ onMatched }: { onMatched: (domain: string) => void }) => {
+interface MatchingScreenProps {
+  onCancel: () => void;
+}
+
+const MatchingScreen = ({ onCancel }: MatchingScreenProps) => {
   const [currentLine, setCurrentLine] = useState(0);
-  const [matched, setMatched] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentLine((prev) => (prev + 1) % searchLines.length);
     }, 1200);
-
-    const matchTimer = setTimeout(() => {
-      clearInterval(interval);
-      setMatched(true);
-      setTimeout(() => onMatched("engineer@nvidia.com"), 1500);
-    }, 5000);
-
-    return () => {
-      clearInterval(interval);
-      clearTimeout(matchTimer);
-    };
-  }, [onMatched]);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen gap-8 p-4">
@@ -38,45 +31,41 @@ const MatchingScreen = ({ onMatched }: { onMatched: (domain: string) => void }) 
       >
         <div className="font-mono text-sm space-y-3">
           <AnimatePresence mode="wait">
-            {!matched ? (
-              <motion.div
-                key={currentLine}
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                className="text-terminal-green"
-              >
-                {searchLines[currentLine]}
-                <span className="animate-blink ml-1">▊</span>
-              </motion.div>
-            ) : (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="space-y-2"
-              >
-                <div className="text-terminal-green">[DOMAIN VERIFIED: NVIDIA.COM]</div>
-                <div className="text-terminal-green font-semibold">[MATCH FOUND]</div>
-              </motion.div>
-            )}
+            <motion.div
+              key={currentLine}
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -5 }}
+              className="text-terminal-green"
+            >
+              {searchLines[currentLine]}
+              <span className="animate-blink ml-1">▊</span>
+            </motion.div>
           </AnimatePresence>
         </div>
 
-        {/* Scanning animation */}
-        <div className="mt-6 flex items-center gap-3">
-          <div className="flex gap-1">
-            {[0, 1, 2].map((i) => (
-              <motion.div
-                key={i}
-                className="w-2 h-2 rounded-full bg-terminal-green"
-                animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.3 }}
-              />
-            ))}
+        <div className="mt-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1">
+              {[0, 1, 2].map((i) => (
+                <motion.div
+                  key={i}
+                  className="w-2 h-2 rounded-full bg-terminal-green"
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.3 }}
+                />
+              ))}
+            </div>
+            <span className="text-xs text-muted-foreground font-mono">
+              Scanning network...
+            </span>
           </div>
-          <span className="text-xs text-muted-foreground font-mono">
-            {matched ? "Establishing connection..." : "Scanning network..."}
-          </span>
+          <button
+            onClick={onCancel}
+            className="font-mono text-xs text-destructive hover:text-destructive/80 transition-colors"
+          >
+            Cancel
+          </button>
         </div>
       </motion.div>
     </div>

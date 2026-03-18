@@ -1,35 +1,51 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Landing from "../components/Landing";
 import MatchingScreen from "../components/MatchingScreen";
 import VideoStage from "../components/VideoStage";
+import { useMatchmaking } from "../hooks/useMatchmaking";
+import { useWebRTC } from "../hooks/useWebRTC";
 
 type AppState = "landing" | "matching" | "connected";
 
 const Index = () => {
   const [state, setState] = useState<AppState>("landing");
   const [userEmail, setUserEmail] = useState("");
-  const [peerDomain, setPeerDomain] = useState("");
+  const [peerEmail, setPeerEmail] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [role, setRole] = useState<"offerer" | "answerer">("offerer");
+
+  const { findMatch, stopPolling } = useMatchmaking();
 
   const handleStart = (email: string) => {
     setUserEmail(email);
     setState("matching");
+    findMatch(email, (matchRoomId, peer, matchRole) => {
+      setRoomId(matchRoomId);
+      setPeerEmail(peer);
+      setRole(matchRole);
+      setState("connected");
+    });
   };
 
-  const handleMatched = useCallback((peer: string) => {
-    setPeerDomain(peer);
-    setState("connected");
-  }, []);
-
   const handleNext = () => {
+    setRoomId("");
+    setPeerEmail("");
     setState("matching");
-    setPeerDomain("");
+    findMatch(userEmail, (matchRoomId, peer, matchRole) => {
+      setRoomId(matchRoomId);
+      setPeerEmail(peer);
+      setRole(matchRole);
+      setState("connected");
+    });
   };
 
   const handleEnd = () => {
+    stopPolling();
     setState("landing");
     setUserEmail("");
-    setPeerDomain("");
+    setPeerEmail("");
+    setRoomId("");
   };
 
   return (
@@ -54,10 +70,10 @@ const Index = () => {
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.3 }}
           >
-            <MatchingScreen onMatched={handleMatched} />
+            <MatchingScreen onCancel={handleEnd} />
           </motion.div>
         )}
-        {state === "connected" && (
+        {state === "connected" && roomId && (
           <motion.div
             key="connected"
             initial={{ opacity: 0, x: 20 }}
@@ -66,7 +82,9 @@ const Index = () => {
             transition={{ duration: 0.3 }}
           >
             <VideoStage
-              peerDomain={peerDomain}
+              roomId={roomId}
+              role={role}
+              peerEmail={peerEmail}
               userEmail={userEmail}
               onNext={handleNext}
               onEnd={handleEnd}

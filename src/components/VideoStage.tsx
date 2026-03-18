@@ -1,20 +1,74 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Mic, MicOff, Video, VideoOff, SkipForward, Flag, MessageSquare, X } from "lucide-react";
+import { useWebRTC } from "@/hooks/useWebRTC";
 
 interface VideoStageProps {
-  peerDomain: string;
+  roomId: string;
+  role: "offerer" | "answerer";
+  peerEmail: string;
   userEmail: string;
   onNext: () => void;
   onEnd: () => void;
 }
 
-const VideoStage = ({ peerDomain, userEmail, onNext, onEnd }: VideoStageProps) => {
+const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: VideoStageProps) => {
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
 
-  const peerOrg = peerDomain.split("@")[1]?.split(".")[0]?.toUpperCase() || "UNKNOWN";
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  const { localStream, remoteStream, connectionState, start, cleanup, toggleMic, toggleCam } =
+    useWebRTC({
+      roomId,
+      role,
+      onDisconnect: () => {
+        // Peer disconnected
+      },
+    });
+
+  useEffect(() => {
+    start();
+    return () => cleanup();
+  }, [roomId]);
+
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
+  const handleMicToggle = () => {
+    const next = !micOn;
+    setMicOn(next);
+    toggleMic(next);
+  };
+
+  const handleCamToggle = () => {
+    const next = !camOn;
+    setCamOn(next);
+    toggleCam(next);
+  };
+
+  const handleNext = () => {
+    cleanup();
+    onNext();
+  };
+
+  const handleEnd = () => {
+    cleanup();
+    onEnd();
+  };
+
+  const peerOrg = peerEmail.split("@")[1]?.split(".")[0]?.toUpperCase() || "PEER";
   const userOrg = userEmail.split("@")[1]?.split(".")[0]?.toUpperCase() || "YOU";
 
   return (
@@ -29,22 +83,29 @@ const VideoStage = ({ peerDomain, userEmail, onNext, onEnd }: VideoStageProps) =
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
         >
-          <div className="absolute inset-4 bg-card rounded-inner flex items-center justify-center">
-            <div className="text-center space-y-3">
-              <div className="font-mono text-2xl md:text-4xl font-semibold text-terminal-green heading-tracking">
-                {peerOrg}
-              </div>
-              <div className="font-mono text-xs text-muted-foreground text-tracking-terminal">
-                Camera Connected
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          {(!remoteStream || remoteStream.getTracks().length === 0) && (
+            <div className="absolute inset-4 bg-card rounded-[var(--radius-inner)] flex items-center justify-center">
+              <div className="text-center space-y-3">
+                <div className="font-mono text-2xl md:text-4xl font-semibold text-terminal-green heading-tracking">
+                  {peerOrg}
+                </div>
+                <div className="font-mono text-xs text-muted-foreground text-tracking-terminal">
+                  {connectionState === "connected" ? "Camera Connected" : "Connecting..."}
+                </div>
               </div>
             </div>
-          </div>
-          {/* Verified badge */}
+          )}
           <div className="absolute bottom-4 left-4 z-10">
             <div className="bg-terminal-green-glow border border-terminal-green/30 rounded-full px-3 py-1.5 flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-terminal-green animate-pulse-green" />
               <span className="font-mono text-xs text-terminal-green text-tracking-terminal">
-                {peerDomain}
+                {peerEmail}
               </span>
             </div>
           </div>
@@ -58,16 +119,26 @@ const VideoStage = ({ peerDomain, userEmail, onNext, onEnd }: VideoStageProps) =
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1], delay: 0.1 }}
         >
-          <div className="absolute inset-4 bg-card rounded-inner flex items-center justify-center">
-            <div className="text-center space-y-3">
-              <div className="font-mono text-2xl md:text-4xl font-semibold text-foreground heading-tracking">
-                {userOrg}
-              </div>
-              <div className="font-mono text-xs text-muted-foreground text-tracking-terminal">
-                {camOn ? "Camera On" : "Camera Off"}
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute inset-0 w-full h-full object-cover mirror"
+            style={{ transform: "scaleX(-1)" }}
+          />
+          {!localStream && (
+            <div className="absolute inset-4 bg-card rounded-[var(--radius-inner)] flex items-center justify-center">
+              <div className="text-center space-y-3">
+                <div className="font-mono text-2xl md:text-4xl font-semibold text-foreground heading-tracking">
+                  {userOrg}
+                </div>
+                <div className="font-mono text-xs text-muted-foreground text-tracking-terminal">
+                  Starting Camera...
+                </div>
               </div>
             </div>
-          </div>
+          )}
           <div className="absolute bottom-4 left-4 z-10">
             <div className="bg-secondary/80 rounded-full px-3 py-1.5">
               <span className="font-mono text-xs text-muted-foreground">YOU</span>
@@ -95,7 +166,7 @@ const VideoStage = ({ peerDomain, userEmail, onNext, onEnd }: VideoStageProps) =
           </div>
           <div className="p-3 border-t border-border">
             <input
-              className="w-full bg-card rounded-inner px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"
+              className="w-full bg-card rounded-[var(--radius-inner)] px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"
               placeholder="Type a message..."
             />
           </div>
@@ -114,13 +185,13 @@ const VideoStage = ({ peerDomain, userEmail, onNext, onEnd }: VideoStageProps) =
           <ControlButton
             icon={micOn ? <Mic size={18} /> : <MicOff size={18} />}
             active={micOn}
-            onClick={() => setMicOn(!micOn)}
+            onClick={handleMicToggle}
             label={micOn ? "Mute" : "Unmute"}
           />
           <ControlButton
             icon={camOn ? <Video size={18} /> : <VideoOff size={18} />}
             active={camOn}
-            onClick={() => setCamOn(!camOn)}
+            onClick={handleCamToggle}
             label={camOn ? "Camera Off" : "Camera On"}
           />
           <ControlButton
@@ -136,7 +207,7 @@ const VideoStage = ({ peerDomain, userEmail, onNext, onEnd }: VideoStageProps) =
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             transition={{ type: "tween", ease: [0.4, 0, 0.2, 1] }}
-            onClick={onNext}
+            onClick={handleNext}
             className="flex items-center gap-2 bg-terminal-green text-primary-foreground font-mono text-sm font-medium px-5 py-2.5 rounded-full hover:opacity-90 transition-opacity"
           >
             <SkipForward size={16} />
@@ -154,7 +225,7 @@ const VideoStage = ({ peerDomain, userEmail, onNext, onEnd }: VideoStageProps) =
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={onEnd}
+            onClick={handleEnd}
             className="bg-destructive text-destructive-foreground font-mono text-sm font-medium px-4 py-2.5 rounded-full hover:opacity-90 transition-opacity"
           >
             End
