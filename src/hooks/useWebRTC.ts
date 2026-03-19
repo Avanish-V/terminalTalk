@@ -127,19 +127,39 @@ export function useWebRTC({ roomId, role, onDisconnect }: UseWebRTCOptions) {
       }
     });
 
+    // Offerer waits for answerer's ready signal before sending offer
+    if (role === "offerer") {
+      channel.on("broadcast", { event: "ready" }, async () => {
+        if (pcRef.current && !pcRef.current.localDescription) {
+          const offer = await pcRef.current.createOffer();
+          await pcRef.current.setLocalDescription(offer);
+          channel.send({
+            type: "broadcast",
+            event: "offer",
+            payload: { sdp: offer },
+          });
+        }
+      });
+    }
+
     await channel.subscribe();
 
-    // If offerer, create and send offer
-    if (role === "offerer") {
-      // Small delay to let answerer subscribe
-      await new Promise((r) => setTimeout(r, 1000));
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      channel.send({
-        type: "broadcast",
-        event: "offer",
-        payload: { sdp: offer },
-      });
+    // Answerer signals readiness; offerer also sends a ping in case answerer was first
+    if (role === "answerer") {
+      channel.send({ type: "broadcast", event: "ready", payload: {} });
+    } else {
+      // In case answerer is already subscribed, send offer after a short delay as fallback
+      setTimeout(async () => {
+        if (pcRef.current && !pcRef.current.localDescription) {
+          const offer = await pcRef.current.createOffer();
+          await pcRef.current.setLocalDescription(offer);
+          channel.send({
+            type: "broadcast",
+            event: "offer",
+            payload: { sdp: offer },
+          });
+        }
+      }, 2000);
     }
   }, [roomId, role, onDisconnect]);
 
