@@ -35,6 +35,36 @@ export type Database = {
         }
         Relationships: []
       }
+      match_sessions: {
+        Row: {
+          answerer_email: string
+          created_at: string
+          id: string
+          offerer_email: string
+          room_id: string
+          user_one_email: string
+          user_two_email: string
+        }
+        Insert: {
+          answerer_email: string
+          created_at?: string
+          id?: string
+          offerer_email: string
+          room_id?: string
+          user_one_email: string
+          user_two_email: string
+        }
+        Update: {
+          answerer_email?: string
+          created_at?: string
+          id?: string
+          offerer_email?: string
+          room_id?: string
+          user_one_email?: string
+          user_two_email?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
