@@ -19,14 +19,7 @@ export function useAuth() {
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      const u = session?.user ?? null;
-      if (u?.email && !isAllowedDomain(u.email)) {
-        supabase.auth.signOut();
-        setUser(null);
-        setError("Only corporate tech or .edu emails are accepted");
-      } else {
-        setUser(u);
-      }
+      setUser(session?.user ?? null);
       setLoading(false);
     });
 
