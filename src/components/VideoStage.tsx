@@ -72,12 +72,12 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
   const userOrg = userEmail.split("@")[1]?.split(".")[0]?.toUpperCase() || "YOU";
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-[100dvh]">
       {/* Video Grid */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 md:p-6 max-w-5xl mx-auto w-full">
-        {/* Peer Video */}
+      <div className="flex-1 relative md:grid md:grid-cols-2 gap-3 p-3 md:gap-6 md:p-6 max-w-5xl mx-auto w-full min-h-0">
+        {/* Peer Video — full area on mobile */}
         <motion.div
-          className="relative bg-surface rounded-lg overflow-hidden flex items-center justify-center"
+          className="absolute inset-3 md:relative md:inset-auto bg-surface rounded-lg overflow-hidden flex items-center justify-center"
           style={{ boxShadow: "var(--card-shadow)" }}
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -111,9 +111,9 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
           </div>
         </motion.div>
 
-        {/* Your Video */}
+        {/* Your Video — small PiP on mobile, side-by-side on desktop */}
         <motion.div
-          className="relative bg-surface rounded-lg overflow-hidden flex items-center justify-center"
+          className="absolute bottom-20 right-4 w-28 h-40 md:relative md:bottom-auto md:right-auto md:w-auto md:h-auto z-10 bg-surface rounded-lg overflow-hidden flex items-center justify-center"
           style={{ boxShadow: "var(--card-shadow)" }}
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -128,20 +128,20 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
             style={{ transform: "scaleX(-1)" }}
           />
           {!localStream && (
-            <div className="absolute inset-4 bg-card rounded-[var(--radius-inner)] flex items-center justify-center">
-              <div className="text-center space-y-3">
-                <div className="font-mono text-2xl md:text-4xl font-semibold text-foreground heading-tracking">
+            <div className="absolute inset-2 md:inset-4 bg-card rounded-[var(--radius-inner)] flex items-center justify-center">
+              <div className="text-center space-y-1 md:space-y-3">
+                <div className="font-mono text-sm md:text-4xl font-semibold text-foreground heading-tracking">
                   {userOrg}
                 </div>
-                <div className="font-mono text-xs text-muted-foreground text-tracking-terminal">
+                <div className="font-mono text-[10px] md:text-xs text-muted-foreground text-tracking-terminal">
                   Starting Camera...
                 </div>
               </div>
             </div>
           )}
-          <div className="absolute bottom-4 left-4 z-10">
-            <div className="bg-secondary/80 rounded-full px-3 py-1.5">
-              <span className="font-mono text-xs text-muted-foreground">YOU</span>
+          <div className="absolute bottom-2 left-2 md:bottom-4 md:left-4 z-10">
+            <div className="bg-secondary/80 rounded-full px-2 py-1 md:px-3 md:py-1.5">
+              <span className="font-mono text-[10px] md:text-xs text-muted-foreground">YOU</span>
             </div>
           </div>
         </motion.div>
