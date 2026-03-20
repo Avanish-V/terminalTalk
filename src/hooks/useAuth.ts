@@ -12,15 +12,8 @@ export function useAuth() {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        const u = session?.user ?? null;
-        if (u?.email && !isAllowedDomain(u.email)) {
-          await supabase.auth.signOut();
-          setUser(null);
-          setError("Only corporate tech or .edu emails are accepted");
-        } else {
-          setUser(u);
-          setError(null);
-        }
+        setUser(session?.user ?? null);
+        setError(null);
         setLoading(false);
       }
     );
