@@ -152,7 +152,7 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="fixed bottom-24 right-4 w-80 bg-surface rounded-lg overflow-hidden z-20"
+          className="fixed bottom-20 right-3 left-3 sm:left-auto sm:w-80 bg-surface rounded-lg overflow-hidden z-20"
           style={{ boxShadow: "var(--card-shadow)" }}
         >
           <div className="flex items-center justify-between p-3 border-b border-border">
