@@ -1,48 +1,20 @@
-import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Shield, Zap, Users } from "lucide-react";
+import { ArrowRight, Shield, Zap, Users, LogOut } from "lucide-react";
 import TerminalLog from "./TerminalLog";
-
-const ALLOWED_DOMAINS = [
-  "google.com", "meta.com", "apple.com", "microsoft.com", "amazon.com",
-  "nvidia.com", "netflix.com", "stripe.com", "github.com", "vercel.com",
-  "openai.com", "anthropic.com", "shopify.com", "figma.com", "notion.so",
-];
-
-const EDU_PATTERN = /\.edu$/i;
+import type { User } from "@supabase/supabase-js";
 
 interface LandingProps {
-  onStart: (email: string) => void;
+  onStart: () => void;
+  onSignIn: () => void;
+  onSignOut: () => void;
+  user: User | null;
+  loading: boolean;
+  authError: string | null;
 }
 
-const Landing = ({ onStart }: LandingProps) => {
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
-
-  const validateEmail = (e: string) => {
-    const domain = e.split("@")[1];
-    if (!domain) return false;
-    if (EDU_PATTERN.test(domain)) return true;
-    return ALLOWED_DOMAINS.some((d) => domain.endsWith(d));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.includes("@")) {
-      setError("Enter a valid email address");
-      return;
-    }
-    if (!validateEmail(email)) {
-      setError("Only corporate tech or .edu emails are accepted");
-      return;
-    }
-    setError("");
-    onStart(email);
-  };
-
+const Landing = ({ onStart, onSignIn, onSignOut, user, loading, authError }: LandingProps) => {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
-      {/* Hero */}
       <motion.div
         className="max-w-xl w-full space-y-10"
         initial={{ opacity: 0, y: 30 }}
@@ -70,44 +42,76 @@ const Landing = ({ onStart }: LandingProps) => {
           <TerminalLog />
         </div>
 
-        {/* Email Entry */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label className="font-mono text-xs text-tracking-terminal text-muted-foreground">
-              Verify Your Identity
-            </label>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setError("");
-                }}
-                placeholder="you@company.com"
-                className="flex-1 bg-surface border border-border rounded-lg px-4 py-3 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow"
-              />
+        {/* Auth Section */}
+        <div className="space-y-4">
+          <label className="font-mono text-xs text-tracking-terminal text-muted-foreground">
+            Verify Your Identity
+          </label>
+
+          {loading ? (
+            <div className="flex items-center gap-3 py-3">
+              <div className="w-4 h-4 border-2 border-terminal-green border-t-transparent rounded-full animate-spin" />
+              <span className="font-mono text-xs text-muted-foreground">Checking session...</span>
+            </div>
+          ) : user ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between bg-surface border border-border rounded-lg px-4 py-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-2 h-2 rounded-full bg-terminal-green shrink-0" />
+                  <span className="font-mono text-sm text-foreground truncate">
+                    {user.email}
+                  </span>
+                </div>
+                <button
+                  onClick={onSignOut}
+                  className="text-muted-foreground hover:text-foreground transition-colors shrink-0 ml-3"
+                  title="Sign out"
+                >
+                  <LogOut size={16} />
+                </button>
+              </div>
               <motion.button
-                type="submit"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="bg-terminal-green text-primary-foreground px-6 py-3 rounded-lg font-mono text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity whitespace-nowrap"
+                onClick={onStart}
+                className="w-full bg-terminal-green text-primary-foreground px-6 py-3 rounded-lg font-mono text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
               >
-                Start
+                Start Session
                 <ArrowRight size={16} />
               </motion.button>
             </div>
-            {error && (
-              <motion.p
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-destructive text-sm font-mono"
+          ) : (
+            <div className="space-y-3">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onSignIn}
+                className="w-full flex items-center justify-center gap-3 bg-surface border border-border rounded-lg px-4 py-3 font-mono text-sm text-foreground hover:bg-secondary/50 transition-colors"
               >
-                {error}
-              </motion.p>
-            )}
-          </div>
-        </form>
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                </svg>
+                Continue with Google
+              </motion.button>
+              <p className="font-mono text-[11px] text-muted-foreground text-center">
+                Use your corporate or .edu Google account
+              </p>
+            </div>
+          )}
+
+          {authError && (
+            <motion.p
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-destructive text-sm font-mono"
+            >
+              {authError}
+            </motion.p>
+          )}
+        </div>
 
         {/* Feature Pills */}
         <div className="flex flex-wrap gap-4">
