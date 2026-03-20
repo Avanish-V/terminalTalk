@@ -97,7 +97,7 @@ const Landing = ({ onStart, onSignIn, onSignOut, user, loading, authError }: Lan
                 Continue with Google
               </motion.button>
               <p className="font-mono text-[11px] text-muted-foreground text-center">
-                Use your corporate or .edu Google account
+                Sign in with any Google account
               </p>
             </div>
           )}
