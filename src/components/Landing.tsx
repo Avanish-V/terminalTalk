@@ -76,7 +76,7 @@ const Landing = ({ onStart }: LandingProps) => {
             <label className="font-mono text-xs text-tracking-terminal text-muted-foreground">
               Verify Your Identity
             </label>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <input
                 type="email"
                 value={email}
@@ -84,16 +84,16 @@ const Landing = ({ onStart }: LandingProps) => {
                   setEmail(e.target.value);
                   setError("");
                 }}
-                placeholder="you@company.com or you@university.edu"
+                placeholder="you@company.com"
                 className="flex-1 bg-surface border border-border rounded-lg px-4 py-3 text-sm font-mono text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow"
               />
               <motion.button
                 type="submit"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="bg-terminal-green text-primary-foreground px-6 py-3 rounded-lg font-mono text-sm font-medium flex items-center gap-2 hover:opacity-90 transition-opacity"
+                className="bg-terminal-green text-primary-foreground px-6 py-3 rounded-lg font-mono text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity whitespace-nowrap"
               >
-                Start Session
+                Start
                 <ArrowRight size={16} />
               </motion.button>
             </div>
