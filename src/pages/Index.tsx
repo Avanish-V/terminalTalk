@@ -1,26 +1,28 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Landing from "../components/Landing";
 import MatchingScreen from "../components/MatchingScreen";
 import VideoStage from "../components/VideoStage";
 import { useMatchmaking } from "../hooks/useMatchmaking";
-import { useWebRTC } from "../hooks/useWebRTC";
+import { useAuth } from "../hooks/useAuth";
 
 type AppState = "landing" | "matching" | "connected";
 
 const Index = () => {
   const [state, setState] = useState<AppState>("landing");
-  const [userEmail, setUserEmail] = useState("");
   const [peerEmail, setPeerEmail] = useState("");
   const [roomId, setRoomId] = useState("");
   const [role, setRole] = useState<"offerer" | "answerer">("offerer");
 
+  const { user, loading, error: authError, signInWithGoogle, signOut } = useAuth();
   const { findMatch, stopPolling } = useMatchmaking();
 
-  const handleStart = (email: string) => {
-    setUserEmail(email);
+  const userEmail = user?.email || "";
+
+  const handleStart = () => {
+    if (!userEmail) return;
     setState("matching");
-    findMatch(email, (matchRoomId, peer, matchRole) => {
+    findMatch(userEmail, (matchRoomId, peer, matchRole) => {
       setRoomId(matchRoomId);
       setPeerEmail(peer);
       setRole(matchRole);
@@ -43,7 +45,6 @@ const Index = () => {
   const handleEnd = () => {
     stopPolling();
     setState("landing");
-    setUserEmail("");
     setPeerEmail("");
     setRoomId("");
   };
@@ -59,7 +60,14 @@ const Index = () => {
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.3 }}
           >
-            <Landing onStart={handleStart} />
+            <Landing
+              onStart={handleStart}
+              onSignIn={signInWithGoogle}
+              user={user}
+              loading={loading}
+              authError={authError}
+              onSignOut={signOut}
+            />
           </motion.div>
         )}
         {state === "matching" && (
