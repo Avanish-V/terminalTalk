@@ -7,9 +7,11 @@ export function useMatchmaking() {
   const myQueueRef = useRef<any>(null);
   const unsubscribeRef = useRef<() => void | null>(null);
   const abortRef = useRef(false);
+  const isMatchingRef = useRef(false);
 
   const stopPolling = useCallback(async () => {
     abortRef.current = true;
+    isMatchingRef.current = false;
     setMatching(false);
 
     if (unsubscribeRef.current) {
@@ -32,6 +34,11 @@ export function useMatchmaking() {
       email: string,
       onMatched: (roomId: string, peer: string, role: "offerer" | "answerer") => void
     ) => {
+      if (isMatchingRef.current) {
+        console.warn("Already securely iterating a match. Ignoring duplicate findMatch call.");
+        return;
+      }
+      isMatchingRef.current = true;
       setMatching(true);
       abortRef.current = false;
 
@@ -73,6 +80,7 @@ export function useMatchmaking() {
                // If this is our own node and it's suddenly matched
                if (peer.status === "matched") {
                  setMatching(false);
+                 isMatchingRef.current = false;
                  if (unsubscribeRef.current) {
                    unsubscribeRef.current();
                    unsubscribeRef.current = null;
@@ -125,6 +133,7 @@ export function useMatchmaking() {
                  if (result.committed && result.snapshot.val()?.status === "matched" && result.snapshot.val()?.peer === email) {
                    if (!abortRef.current) {
                      setMatching(false);
+                     isMatchingRef.current = false;
                      const roomId = result.snapshot.val().roomId;
                      onMatched(roomId, peer.email, "answerer");
                      

@@ -16,6 +16,7 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
+  const [peerDisconnected, setPeerDisconnected] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -25,7 +26,7 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
       roomId,
       role,
       onDisconnect: () => {
-        // Peer disconnected
+        setPeerDisconnected(true);
       },
     });
 
@@ -177,6 +178,40 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
           </div>
         </motion.div>
       </div>
+
+      {/* Disconnected Overlay */}
+      {peerDisconnected && (
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+        >
+          <div className="bg-card border border-border p-6 md:p-8 rounded-[var(--radius)] shadow-xl text-center space-y-5 max-w-sm w-full">
+            <div className="mx-auto w-12 h-12 bg-destructive/10 text-destructive rounded-full flex items-center justify-center">
+              <VideoOff size={24} />
+            </div>
+            <div className="space-y-2">
+              <h3 className="font-mono text-xl text-foreground font-semibold">User Disconnected</h3>
+              <p className="text-sm text-muted-foreground font-mono">The peer has left the session or lost connection.</p>
+            </div>
+            <div className="flex gap-3 justify-center pt-2">
+              <button
+                onClick={handleEnd}
+                className="flex-1 px-4 py-2.5 rounded-[var(--radius-inner)] border border-border text-foreground hover:bg-secondary font-mono text-sm transition-colors"
+              >
+                Go Home
+              </button>
+              <button
+                onClick={handleNext}
+                className="flex-1 px-4 py-2.5 rounded-[var(--radius-inner)] bg-terminal-green text-primary-foreground font-mono text-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+              >
+                <SkipForward size={16} />
+                Find Next
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Chat overlay */}
       {chatOpen && (
