@@ -102,6 +102,8 @@ export function useMatchmaking() {
            try {
              for (const key of keys) {
                if (abortRef.current || myQueueRef.current === null) break;
+               if (key === nodeRef.key) continue; // Skip our own active node BEFORE ghost checks!
+               
                const peer = data[key];
                
                // PREVENT GHOST MATCHES & SELF-MATCHING!
