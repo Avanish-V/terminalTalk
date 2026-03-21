@@ -8,11 +8,17 @@ export function useMatchmaking() {
   const unsubscribeRef = useRef<() => void | null>(null);
   const abortRef = useRef(false);
   const isMatchingRef = useRef(false);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(async () => {
     abortRef.current = true;
     isMatchingRef.current = false;
     setMatching(false);
+
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
 
     if (unsubscribeRef.current) {
       unsubscribeRef.current();
@@ -55,13 +61,28 @@ export function useMatchmaking() {
           return {
             email,
             status: "waiting",
-            createdAt: serverTimestamp()
+            lastActive: Date.now()
           };
         });
 
-        if (abortRef.current) return;
+        heartbeatIntervalRef.current = setInterval(() => {
+          if (myQueueRef.current && !abortRef.current) {
+            runTransaction(myQueueRef.current, (data) => {
+              if (data && data.status === "waiting") {
+                data.lastActive = Date.now();
+                return data;
+              }
+              return data;
+            }).catch(console.warn);
+          }
+        }, 15000);
 
-          let claiming = false;
+        if (abortRef.current) {
+          if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+          return;
+        }
+
+        let claiming = false;
 
         // To match, we look at the queue
         const onQueueChange = onValue(queueRef, async (snapshot) => {
@@ -118,6 +139,14 @@ export function useMatchmaking() {
                }
                
                if (peer.status === "waiting") {
+                 // FIREBASE NODE PRUNING: Stale/Dead checks!
+                 // If the peer has not sent a heartbeat in 45 seconds, their browser is dead. Delete them immediately.
+                 if (peer.lastActive && Date.now() - peer.lastActive > 45000) {
+                   console.log(`[Matchmaking] Pruning absolutely dead/stale queue node: ${key}`);
+                   remove(ref(rtdb, `matchmaking/${key}`)).catch(console.warn);
+                   continue;
+                 }
+
                  // Attempt to transactionally claim this peer
                  const peerRef = ref(rtdb, `matchmaking/${key}`);
                  const result = await runTransaction(peerRef, (currentData) => {
@@ -161,11 +190,15 @@ export function useMatchmaking() {
            }
         });
 
-        unsubscribeRef.current = () => off(queueRef, "value", onQueueChange);
+        unsubscribeRef.current = () => {
+          off(queueRef, "value", onQueueChange);
+          if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
+        };
 
       } catch (e) {
         console.error("Match error:", e);
         setMatching(false);
+        isMatchingRef.current = false;
       }
     },
     []
