@@ -22,8 +22,9 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
   const [connectionState, setConnectionState] = useState<string>("new");
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
-  const unsubscribeRef = useRef<() => void | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
 
   const cleanup = useCallback(() => {
     pcRef.current?.close();
@@ -79,13 +80,11 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
     // Handle remote tracks
-    const remote = new MediaStream();
-    setRemoteStream(remote);
     pc.ontrack = (event) => {
-      event.streams[0]?.getTracks().forEach((track) => {
-        remote.addTrack(track);
+      setRemoteStream((prevStream) => {
+        if (prevStream) return prevStream;
+        return event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
       });
-      setRemoteStream(new MediaStream(remote.getTracks()));
     };
 
     pc.onconnectionstatechange = () => {
@@ -114,21 +113,28 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
       switch (data.event) {
         case "ice-candidate":
           if (data.payload?.candidate && pcRef.current) {
-            try {
-              await pcRef.current.addIceCandidate(
-                new RTCIceCandidate(data.payload.candidate)
-              );
-            } catch (e) {
-              console.warn("Failed to add ICE candidate:", e);
+            const candidateList = pendingCandidates.current;
+            if (pcRef.current.remoteDescription) {
+              try {
+                await pcRef.current.addIceCandidate(new RTCIceCandidate(data.payload.candidate));
+              } catch (e) {
+                console.warn("Failed to add ICE candidate:", e);
+              }
+            } else {
+              candidateList.push(data.payload.candidate);
             }
           }
           break;
 
         case "offer":
           if (data.payload?.sdp && pcRef.current) {
-            await pcRef.current.setRemoteDescription(
-              new RTCSessionDescription(data.payload.sdp)
-            );
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.payload.sdp));
+            // Flush any pending candidates
+            for (const c of pendingCandidates.current) {
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(c)).catch(console.warn);
+            }
+            pendingCandidates.current = [];
+            
             const answer = await pcRef.current.createAnswer();
             await pcRef.current.setLocalDescription(answer);
             sendEvent("answer", { sdp: answer });
@@ -137,9 +143,12 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
 
         case "answer":
           if (data.payload?.sdp && pcRef.current) {
-            await pcRef.current.setRemoteDescription(
-              new RTCSessionDescription(data.payload.sdp)
-            );
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.payload.sdp));
+            // Flush any pending candidates
+            for (const c of pendingCandidates.current) {
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(c)).catch(console.warn);
+            }
+            pendingCandidates.current = [];
           }
           break;
 
