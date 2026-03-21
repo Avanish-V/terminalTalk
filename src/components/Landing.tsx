@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight, Shield, Zap, Users, LogOut } from "lucide-react";
 import TerminalLog from "./TerminalLog";
-import type { User } from "@supabase/supabase-js";
+import type { User } from "firebase/auth";
 
 interface LandingProps {
   onStart: () => void;

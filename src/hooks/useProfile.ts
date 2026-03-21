@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import type { User } from "@supabase/supabase-js";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import type { User } from "firebase/auth";
 
 export interface Profile {
-  id: string;
-  user_id: string;
+  id: string; // we'll use user.uid here
+  user_id: string; // we'll keep this redundant for compatibility
   display_name: string;
   age: number;
   gender: string;
+  updated_at?: string;
 }
 
 export function useProfile(user: User | null) {
@@ -21,12 +23,18 @@ export function useProfile(user: User | null) {
       return;
     }
     setLoading(true);
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    setProfile(data);
+    try {
+      const docRef = doc(db, "profiles", user.uid);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setProfile(docSnap.data() as Profile);
+      } else {
+        setProfile(null);
+      }
+    } catch (e) {
+      console.error("Error fetching profile:", e);
+      setProfile(null);
+    }
     setLoading(false);
   }, [user]);
 
@@ -37,16 +45,20 @@ export function useProfile(user: User | null) {
   const saveProfile = useCallback(
     async (values: { display_name: string; age: number; gender: string }) => {
       if (!user) return;
-      const { data, error } = await supabase
-        .from("profiles")
-        .upsert(
-          { user_id: user.id, ...values, updated_at: new Date().toISOString() },
-          { onConflict: "user_id" }
-        )
-        .select()
-        .single();
-      if (error) throw error;
-      setProfile(data);
+      const profileData: Profile = {
+        id: user.uid,
+        user_id: user.uid,
+        ...values,
+        updated_at: new Date().toISOString(),
+      };
+      
+      try {
+        await setDoc(doc(db, "profiles", user.uid), profileData, { merge: true });
+        setProfile(profileData);
+      } catch (error) {
+        console.error("Error saving profile:", error);
+        throw error;
+      }
     },
     [user]
   );

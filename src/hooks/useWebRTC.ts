@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { ref, push, onChildAdded, off, onDisconnect, remove } from "firebase/database";
+import { rtdb } from "@/lib/firebase";
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -16,13 +16,13 @@ interface UseWebRTCOptions {
   onDisconnect?: () => void;
 }
 
-export function useWebRTC({ roomId, role, onDisconnect }: UseWebRTCOptions) {
+export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWebRTCOptions) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<string>("new");
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
-  const channelRef = useRef<RealtimeChannel | null>(null);
+  const unsubscribeRef = useRef<() => void | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
 
   const cleanup = useCallback(() => {
@@ -30,16 +30,39 @@ export function useWebRTC({ roomId, role, onDisconnect }: UseWebRTCOptions) {
     pcRef.current = null;
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-      channelRef.current = null;
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
     }
+    
+    // Cleanup room data manually if we're leaving gracefully
+    const roomRef = ref(rtdb, `rooms/${roomId}`);
+    remove(roomRef).catch(console.error);
+
     setLocalStream(null);
     setRemoteStream(null);
     setConnectionState("closed");
-  }, []);
+  }, [roomId]);
+
+  const sendEvent = useCallback(async (event: string, payload: any) => {
+    try {
+      const messagesRef = ref(rtdb, `rooms/${roomId}/messages`);
+      await push(messagesRef, {
+        event,
+        payload,
+        sender: role,
+        timestamp: Date.now()
+      });
+    } catch (e) {
+      console.error("Error sending signal event:", e);
+    }
+  }, [roomId, role]);
 
   const start = useCallback(async () => {
+    // Register onDisconnect to clean up on sudden closes
+    const roomRef = ref(rtdb, `rooms/${roomId}`);
+    onDisconnect(roomRef).remove().catch(console.error);
+
     // Get local media
     const stream = await navigator.mediaDevices.getUserMedia({
       video: true,
@@ -71,97 +94,81 @@ export function useWebRTC({ roomId, role, onDisconnect }: UseWebRTCOptions) {
         pc.connectionState === "disconnected" ||
         pc.connectionState === "failed"
       ) {
-        onDisconnect?.();
+        onDisconnectCb?.();
       }
     };
-
-    // Signaling via Supabase Realtime Broadcast
-    const channel = supabase.channel(`room:${roomId}`, {
-      config: { broadcast: { self: false } },
-    });
-    channelRef.current = channel;
 
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        channel.send({
-          type: "broadcast",
-          event: "ice-candidate",
-          payload: { candidate: event.candidate.toJSON() },
-        });
+        sendEvent("ice-candidate", { candidate: event.candidate.toJSON() });
       }
     };
 
-    channel.on("broadcast", { event: "ice-candidate" }, async ({ payload }) => {
-      if (payload?.candidate && pcRef.current) {
-        try {
-          await pcRef.current.addIceCandidate(
-            new RTCIceCandidate(payload.candidate)
-          );
-        } catch (e) {
-          console.warn("Failed to add ICE candidate:", e);
-        }
+    // Signaling via Realtime Database
+    const messagesRef = ref(rtdb, `rooms/${roomId}/messages`);
+    const onMessageAdded = onChildAdded(messagesRef, async (snapshot) => {
+      const data = snapshot.val();
+      if (!data || data.sender === role) return;
+
+      switch (data.event) {
+        case "ice-candidate":
+          if (data.payload?.candidate && pcRef.current) {
+            try {
+              await pcRef.current.addIceCandidate(
+                new RTCIceCandidate(data.payload.candidate)
+              );
+            } catch (e) {
+              console.warn("Failed to add ICE candidate:", e);
+            }
+          }
+          break;
+
+        case "offer":
+          if (data.payload?.sdp && pcRef.current) {
+            await pcRef.current.setRemoteDescription(
+              new RTCSessionDescription(data.payload.sdp)
+            );
+            const answer = await pcRef.current.createAnswer();
+            await pcRef.current.setLocalDescription(answer);
+            sendEvent("answer", { sdp: answer });
+          }
+          break;
+
+        case "answer":
+          if (data.payload?.sdp && pcRef.current) {
+            await pcRef.current.setRemoteDescription(
+              new RTCSessionDescription(data.payload.sdp)
+            );
+          }
+          break;
+
+        case "ready":
+          if (role === "offerer" && pcRef.current && !pcRef.current.localDescription) {
+            const offer = await pcRef.current.createOffer();
+            await pcRef.current.setLocalDescription(offer);
+            sendEvent("offer", { sdp: offer });
+          }
+          break;
       }
     });
 
-    channel.on("broadcast", { event: "offer" }, async ({ payload }) => {
-      if (payload?.sdp && pcRef.current) {
-        await pcRef.current.setRemoteDescription(
-          new RTCSessionDescription(payload.sdp)
-        );
-        const answer = await pcRef.current.createAnswer();
-        await pcRef.current.setLocalDescription(answer);
-        channel.send({
-          type: "broadcast",
-          event: "answer",
-          payload: { sdp: answer },
-        });
-      }
-    });
-
-    channel.on("broadcast", { event: "answer" }, async ({ payload }) => {
-      if (payload?.sdp && pcRef.current) {
-        await pcRef.current.setRemoteDescription(
-          new RTCSessionDescription(payload.sdp)
-        );
-      }
-    });
-
-    // Offerer waits for answerer's ready signal before sending offer
-    if (role === "offerer") {
-      channel.on("broadcast", { event: "ready" }, async () => {
-        if (pcRef.current && !pcRef.current.localDescription) {
-          const offer = await pcRef.current.createOffer();
-          await pcRef.current.setLocalDescription(offer);
-          channel.send({
-            type: "broadcast",
-            event: "offer",
-            payload: { sdp: offer },
-          });
-        }
-      });
-    }
-
-    await channel.subscribe();
+    unsubscribeRef.current = () => off(messagesRef, "child_added", onMessageAdded);
 
     // Answerer signals readiness; offerer also sends a ping in case answerer was first
     if (role === "answerer") {
-      channel.send({ type: "broadcast", event: "ready", payload: {} });
+      sendEvent("ready", {});
     } else {
       // In case answerer is already subscribed, send offer after a short delay as fallback
       setTimeout(async () => {
         if (pcRef.current && !pcRef.current.localDescription) {
           const offer = await pcRef.current.createOffer();
           await pcRef.current.setLocalDescription(offer);
-          channel.send({
-            type: "broadcast",
-            event: "offer",
-            payload: { sdp: offer },
-          });
+          sendEvent("offer", { sdp: offer });
         }
       }, 2000);
     }
-  }, [roomId, role, onDisconnect]);
+  }, [roomId, role, onDisconnectCb, sendEvent]);
 
   const toggleMic = useCallback(
     (enabled: boolean) => {
