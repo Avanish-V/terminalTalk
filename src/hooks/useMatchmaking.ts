@@ -54,6 +54,8 @@ export function useMatchmaking() {
 
         if (abortRef.current) return;
 
+          let claiming = false;
+
         // To match, we look at the queue
         const onQueueChange = onValue(queueRef, async (snapshot) => {
            if (abortRef.current) return;
@@ -62,7 +64,9 @@ export function useMatchmaking() {
            if (!data) return;
 
            const keys = Object.keys(data);
-           // Try to find someone waiting who isn't us
+           
+           // HIGHEST PRIORITY: Check if SOMEONE ELSE matched with us!
+           // We must never block this check with a lock.
            for (const key of keys) {
              const peer = data[key];
              if (key === nodeRef.key) {
@@ -73,44 +77,61 @@ export function useMatchmaking() {
                    unsubscribeRef.current();
                    unsubscribeRef.current = null;
                  }
+                 // If they set our roomId and peer email
                  onMatched(peer.roomId, peer.peer, "offerer");
                  remove(nodeRef).catch(console.error);
                  myQueueRef.current = null;
+                 return; // We matched! Stop looking at the queue entirely.
                }
-               continue;
              }
+           }
 
-             if (peer.status === "waiting") {
-               // Attempt to transactionally claim this peer
-               const peerRef = ref(rtdb, `matchmaking/${key}`);
-               const result = await runTransaction(peerRef, (currentData) => {
-                 if (currentData && currentData.status === "waiting") {
-                   currentData.status = "matched";
-                   currentData.roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                   currentData.peer = email;
-                   currentData.role = "offerer";
-                   return currentData;
-                 }
-                 return currentData; // abort transaction
-               });
-
-               if (result.committed && result.snapshot.val().status === "matched" && result.snapshot.val().peer === email) {
-                 // We matched with them!
-                 if (!abortRef.current) {
-                   setMatching(false);
-                   const roomId = result.snapshot.val().roomId;
-                   onMatched(roomId, peer.email, "answerer");
-                   
-                   if (unsubscribeRef.current) {
-                     unsubscribeRef.current();
-                     unsubscribeRef.current = null;
+           // SECOND PRIORITY: If we are not matched, try to claim someone else.
+           // Use a lock to prevent concurrent overlapping transactions from spanning out of control.
+           if (claiming || abortRef.current) return;
+           claiming = true;
+           
+           try {
+             for (const key of keys) {
+               if (abortRef.current || myQueueRef.current === null) break;
+               if (key === nodeRef.key) continue; // Skip ourselves
+               
+               const peer = data[key];
+               if (peer.status === "waiting") {
+                 // Attempt to transactionally claim this peer
+                 const peerRef = ref(rtdb, `matchmaking/${key}`);
+                 const result = await runTransaction(peerRef, (currentData) => {
+                   if (currentData && currentData.status === "waiting") {
+                     currentData.status = "matched";
+                     currentData.roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                     currentData.peer = email;
+                     currentData.role = "offerer";
+                     return currentData;
                    }
-                   remove(nodeRef).catch(console.error);
-                   myQueueRef.current = null;
+                   return currentData; // abort transaction
+                 });
+
+                 // If transaction succeeded and we successfully secured the peer
+                 if (result.committed && result.snapshot.val()?.status === "matched" && result.snapshot.val()?.peer === email) {
+                   if (!abortRef.current) {
+                     setMatching(false);
+                     const roomId = result.snapshot.val().roomId;
+                     onMatched(roomId, peer.email, "answerer");
+                     
+                     if (unsubscribeRef.current) {
+                       unsubscribeRef.current();
+                       unsubscribeRef.current = null;
+                     }
+                     // Remove our own waiting node from the queue
+                     remove(nodeRef).catch(console.error);
+                     myQueueRef.current = null;
+                   }
+                   break; // Stop iterating, we found a match!
                  }
-                 break;
                }
              }
+           } finally {
+             claiming = false;
            }
         });
 
