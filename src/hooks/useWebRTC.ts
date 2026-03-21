@@ -48,9 +48,12 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
   const sendEvent = useCallback(async (event: string, payload: any) => {
     try {
       const messagesRef = ref(rtdb, `rooms/${roomId}/messages`);
+      // Firebase throws an exception if payload contains Custom Prototypes like RTCSessionDescription.
+      // We safely convert it to a primitive plane object here:
+      const safePayload = JSON.parse(JSON.stringify(payload));
       await push(messagesRef, {
         event,
-        payload,
+        payload: safePayload,
         sender: role,
         timestamp: Date.now()
       });
