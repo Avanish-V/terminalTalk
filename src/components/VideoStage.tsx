@@ -90,12 +90,12 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
   };
 
   const handleNext = () => {
-    cleanup();
+    cleanup(true);
     onNext();
   };
 
   const handleEnd = () => {
-    cleanup();
+    cleanup(true);
     onEnd();
   };
 

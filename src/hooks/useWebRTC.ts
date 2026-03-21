@@ -26,7 +26,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
   const localStreamRef = useRef<MediaStream | null>(null);
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
 
-  const cleanup = useCallback(() => {
+  const cleanup = useCallback((destroyRoom: boolean = false) => {
     pcRef.current?.close();
     pcRef.current = null;
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
@@ -36,9 +36,11 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
       unsubscribeRef.current = null;
     }
     
-    // Cleanup room data manually if we're leaving gracefully
-    const roomRef = ref(rtdb, `rooms/${roomId}`);
-    remove(roomRef).catch(console.error);
+    // Cleanup room data manually ONLY on explicit hangup (not React strict mode remounts)
+    if (destroyRoom) {
+      const roomRef = ref(rtdb, `rooms/${roomId}`);
+      remove(roomRef).catch(console.error);
+    }
 
     setLocalStream(null);
     setRemoteStream(null);
