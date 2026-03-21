@@ -82,8 +82,17 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     // Handle remote tracks
     pc.ontrack = (event) => {
       setRemoteStream((prevStream) => {
-        if (prevStream) return prevStream;
-        return event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+        if (event.streams && event.streams[0]) {
+          // If browser natively supplies the stream, use it.
+          // Since React needs a new reference to trigger a re-render for track count check,
+          // we create a new MediaStream instance with the same exact tracks.
+          return new MediaStream(event.streams[0].getTracks());
+        }
+        if (prevStream) {
+          prevStream.addTrack(event.track);
+          return new MediaStream(prevStream.getTracks());
+        }
+        return new MediaStream([event.track]);
       });
     };
 
