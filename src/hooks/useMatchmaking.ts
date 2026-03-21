@@ -94,9 +94,19 @@ export function useMatchmaking() {
            try {
              for (const key of keys) {
                if (abortRef.current || myQueueRef.current === null) break;
-               if (key === nodeRef.key) continue; // Skip ourselves
+               if (key === nodeRef.key) continue; // Skip our own active node
                
                const peer = data[key];
+               
+               // PREVENT GHOST MATCHES!
+               // If there is another node in the queue with the EXACT same email, 
+               // it's a stale ghost from a recent page refresh. We shouldn't match with ourselves.
+               if (peer.email === email) {
+                 // Clean up the ghost node to keep the queue healthy
+                 remove(ref(rtdb, `matchmaking/${key}`)).catch(console.warn);
+                 continue; 
+               }
+
                if (peer.status === "waiting") {
                  // Attempt to transactionally claim this peer
                  const peerRef = ref(rtdb, `matchmaking/${key}`);
