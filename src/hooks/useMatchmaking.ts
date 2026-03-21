@@ -102,12 +102,18 @@ export function useMatchmaking() {
            try {
              for (const key of keys) {
                if (abortRef.current || myQueueRef.current === null) break;
-               if (key === nodeRef.key) continue; // Skip our own active node
-               
                const peer = data[key];
                
-               // We will allow matching with nodes containing the same email, 
-               // so the developer can easily test locally using two tabs with the identical Google account!
+               // PREVENT GHOST MATCHES & SELF-MATCHING!
+               // If there is another node in the queue with the EXACT same email, 
+               // it's a stale ghost from a recent page refresh, or it's you testing in another tab.
+               // We strictly forbid matching with your own email to stop dead sessions from trapping you.
+               if (peer.email === email) {
+                 console.log("[Matchmaking] Found another node with identically matching email (" + email + "). Deleting ghost node and skipping.");
+                 // Clean up the ghost node to keep the queue healthy
+                 remove(ref(rtdb, `matchmaking/${key}`)).catch(console.warn);
+                 continue; 
+               }
                
                if (peer.status === "waiting") {
                  // Attempt to transactionally claim this peer
