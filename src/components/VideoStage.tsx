@@ -37,12 +37,43 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch(e => console.warn("Local play block:", e));
     }
   }, [localStream]);
 
+  // Keep a local track count so React UI correctly un-mounts the "Connecting..." overlay immediately.
+  const [trackCount, setTrackCount] = useState(0);
+
+  useEffect(() => {
+    if (remoteStream) {
+      setTrackCount(remoteStream.getTracks().length);
+      
+      const updateCount = () => {
+        setTrackCount(remoteStream.getTracks().length);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStream;
+          remoteVideoRef.current.play().catch(e => console.warn("Track count play kick:", e));
+        }
+      };
+
+      remoteStream.addEventListener("addtrack", updateCount);
+      remoteStream.addEventListener("removetrack", updateCount);
+      
+      return () => {
+        remoteStream.removeEventListener("addtrack", updateCount);
+        remoteStream.removeEventListener("removetrack", updateCount);
+      }
+    } else {
+      setTrackCount(0);
+    }
+  }, [remoteStream]);
+
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
+      if (remoteVideoRef.current.srcObject !== remoteStream) {
+        remoteVideoRef.current.srcObject = remoteStream;
+        remoteVideoRef.current.play().catch(e => console.warn("Autoplay remote video block:", e));
+      }
     }
   }, [remoteStream]);
 
@@ -89,7 +120,7 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
             playsInline
             className="absolute inset-0 w-full h-full object-cover"
           />
-          {(!remoteStream || remoteStream.getTracks().length === 0) && (
+          {trackCount === 0 && (
             <div className="absolute inset-4 bg-card rounded-[var(--radius-inner)] flex items-center justify-center">
               <div className="text-center space-y-3">
                 <div className="font-mono text-2xl md:text-4xl font-semibold text-terminal-green heading-tracking">

@@ -65,10 +65,22 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     onDisconnect(roomRef).remove().catch(console.error);
 
     // Get local media
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true,
-    });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+    } catch (err) {
+      console.warn("Failed to get both video and audio. Trying audio only.", err);
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err2) {
+        console.error("Failed to get any media devices:", err2);
+        // Fallback to empty stream so negotiation doesn't completely halt
+        stream = new MediaStream();
+      }
+    }
     localStreamRef.current = stream;
     setLocalStream(stream);
 
@@ -82,16 +94,20 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     // Handle remote tracks
     pc.ontrack = (event) => {
       setRemoteStream((prevStream) => {
-        if (event.streams && event.streams[0]) {
-          // If browser natively supplies the stream, use it.
-          // Since React needs a new reference to trigger a re-render for track count check,
-          // we create a new MediaStream instance with the same exact tracks.
-          return new MediaStream(event.streams[0].getTracks());
+        // We MUST use the browser's native stream instance directly and keep it stable!
+        // Re-creating MediaStreams can stall playback.
+        if (event.streams && event.streams.length > 0) {
+          return event.streams[0];
         }
+        
+        // Fallback if browser doesn't send streams[]
         if (prevStream) {
-          prevStream.addTrack(event.track);
-          return new MediaStream(prevStream.getTracks());
+          if (!prevStream.getTracks().includes(event.track)) {
+            prevStream.addTrack(event.track);
+          }
+          return prevStream; // Keep same reference
         }
+        
         return new MediaStream([event.track]);
       });
     };
