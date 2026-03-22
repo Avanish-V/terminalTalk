@@ -13,6 +13,7 @@ type AppState = "landing" | "profile" | "matching" | "connected";
 const Index = () => {
   const [state, setState] = useState<AppState>("landing");
   const [peerEmail, setPeerEmail] = useState("");
+  const [peerName, setPeerName] = useState("");
   const [roomId, setRoomId] = useState("");
   const [role, setRole] = useState<"offerer" | "answerer">("offerer");
 
@@ -33,9 +34,10 @@ const Index = () => {
 
   const startMatching = () => {
     setState("matching");
-    findMatch(userEmail, (matchRoomId, peer, matchRole) => {
+    findMatch(userEmail, profile?.display_name || "Stranger", (matchRoomId, peer, matchPeerName, matchRole) => {
       setRoomId(matchRoomId);
       setPeerEmail(peer);
+      setPeerName(matchPeerName || "Stranger");
       setRole(matchRole);
       setState("connected");
     });
@@ -46,13 +48,16 @@ const Index = () => {
     startMatching();
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    await stopPolling();
     setRoomId("");
     setPeerEmail("");
+    setPeerName("");
     setState("matching");
-    findMatch(userEmail, (matchRoomId, peer, matchRole) => {
+    findMatch(userEmail, profile?.display_name || "Stranger", (matchRoomId, peer, matchPeerName, matchRole) => {
       setRoomId(matchRoomId);
       setPeerEmail(peer);
+      setPeerName(matchPeerName || "Stranger");
       setRole(matchRole);
       setState("connected");
     });
@@ -120,6 +125,7 @@ const Index = () => {
               roomId={roomId}
               role={role}
               peerEmail={peerEmail}
+              peerName={peerName}
               userEmail={userEmail}
               onNext={handleNext}
               onEnd={handleEnd}

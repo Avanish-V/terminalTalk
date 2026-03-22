@@ -7,12 +7,13 @@ interface VideoStageProps {
   roomId: string;
   role: "offerer" | "answerer";
   peerEmail: string;
+  peerName: string;
   userEmail: string;
   onNext: () => void;
   onEnd: () => void;
 }
 
-const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: VideoStageProps) => {
+const VideoStage = ({ roomId, role, peerEmail, peerName, userEmail, onNext, onEnd }: VideoStageProps) => {
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
@@ -100,9 +101,6 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
     onEnd();
   };
 
-  const peerOrg = peerEmail.split("@")[1]?.split(".")[0]?.toUpperCase() || "PEER";
-  const userOrg = userEmail.split("@")[1]?.split(".")[0]?.toUpperCase() || "YOU";
-
   return (
     <div className="flex flex-col h-[100dvh]">
       {/* Video Grid */}
@@ -124,8 +122,8 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
           {trackCount === 0 && (
             <div className="absolute inset-4 bg-card rounded-[var(--radius-inner)] flex items-center justify-center">
               <div className="text-center space-y-3">
-                <div className="font-mono text-2xl md:text-4xl font-semibold text-terminal-green heading-tracking">
-                  {peerOrg}
+                <div className="font-mono text-xl md:text-3xl font-semibold text-terminal-green heading-tracking px-4">
+                  {peerName || "STRANGER"}
                 </div>
                 <div className="font-mono text-xs text-muted-foreground text-tracking-terminal">
                   {connectionState === "connected" ? "Camera Connected" : "Connecting..."}
@@ -137,7 +135,7 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
             <div className="bg-terminal-green-glow border border-terminal-green/30 rounded-full px-3 py-1.5 flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-terminal-green animate-pulse-green" />
               <span className="font-mono text-[10px] md:text-xs text-terminal-green text-tracking-terminal">
-                {peerEmail}
+                {peerName || peerEmail}
               </span>
             </div>
           </div>
@@ -162,8 +160,8 @@ const VideoStage = ({ roomId, role, peerEmail, userEmail, onNext, onEnd }: Video
           {!localStream && (
             <div className="absolute inset-4 bg-card rounded-[var(--radius-inner)] flex items-center justify-center">
               <div className="text-center space-y-3">
-                <div className="font-mono text-xl md:text-4xl font-semibold text-foreground heading-tracking">
-                  {userOrg}
+                <div className="font-mono text-xl md:text-3xl font-semibold text-foreground heading-tracking">
+                  YOU
                 </div>
                 <div className="font-mono text-xs text-muted-foreground text-tracking-terminal">
                   Starting Camera...

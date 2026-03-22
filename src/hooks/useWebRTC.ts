@@ -51,7 +51,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
       unsubscribeRef.current();
       unsubscribeRef.current = null;
     }
-    
+
     // Cleanup room data manually ONLY on explicit hangup (not React strict mode remounts)
     if (destroyRoom) {
       const roomRef = ref(rtdb, `rooms/${roomId}`);
@@ -70,7 +70,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
       // Firebase throws an exception if payload contains Custom Prototypes like RTCSessionDescription.
       // We safely convert it to a primitive plane object here:
       const safePayload = JSON.parse(JSON.stringify(payload));
-      
+
       console.log(`[WebRTC] Pushing ${event} safely to RTDB:`, safePayload);
       await push(messagesRef, {
         event,
@@ -129,7 +129,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
           console.log("[WebRTC] Native streams provided by ontrack. Using streams[0].");
           return event.streams[0];
         }
-        
+
         // Fallback if browser doesn't send streams[]
         if (prevStream) {
           if (!prevStream.getTracks().includes(event.track)) {
@@ -138,7 +138,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
           }
           return prevStream; // Keep same reference
         }
-        
+
         console.log("[WebRTC] No prev stream, creating new MediaStream with first track.");
         return new MediaStream([event.track]);
       });
@@ -200,7 +200,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
               await pcRef.current.addIceCandidate(new RTCIceCandidate(c)).catch(console.warn);
             }
             pendingCandidates.current = [];
-            
+
             console.log("[WebRTC] Creating answer...");
             const answer = await pcRef.current.createAnswer();
             await pcRef.current.setLocalDescription(answer);

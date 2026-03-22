@@ -5,12 +5,13 @@ import { rtdb } from "@/lib/firebase";
 export function useMatchmaking() {
   const [matching, setMatching] = useState(false);
   const myQueueRef = useRef<any>(null);
-  const unsubscribeRef = useRef<() => void | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const abortRef = useRef(false);
   const isMatchingRef = useRef(false);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(async () => {
+    console.log("[Matchmaking] stopPolling called. Cleaning up...");
     abortRef.current = true;
     isMatchingRef.current = false;
     setMatching(false);
@@ -27,6 +28,7 @@ export function useMatchmaking() {
 
     if (myQueueRef.current) {
       try {
+        console.log("[Matchmaking] Removing node from queue:", myQueueRef.current.key);
         await remove(myQueueRef.current);
       } catch (e) {
         console.error("Error deleting queue node:", e);
@@ -38,28 +40,35 @@ export function useMatchmaking() {
   const findMatch = useCallback(
     async (
       email: string,
-      onMatched: (roomId: string, peer: string, role: "offerer" | "answerer") => void
+      displayName: string,
+      onMatched: (roomId: string, peer: string, peerName: string, role: "offerer" | "answerer") => void
     ) => {
       if (isMatchingRef.current) {
-        console.warn("Already securely iterating a match. Ignoring duplicate findMatch call.");
+        console.warn("[Matchmaking] Already matching. Ignoring duplicate call.");
         return;
       }
+      
+      console.log("[Matchmaking] findMatch started for:", email, displayName);
+      
+      // Always cleanup before starting a new search to prevent race conditions
+      await stopPolling();
+      
       isMatchingRef.current = true;
       setMatching(true);
       abortRef.current = false;
 
       try {
-        // We'll write ourselves directly into the matchmaking queue
         const queueRef = ref(rtdb, "matchmaking");
         const nodeRef = push(queueRef);
         myQueueRef.current = nodeRef;
+        console.log("[Matchmaking] Created queue node:", nodeRef.key);
 
-        // Ensure if we disconnect, we are removed from queue
         await onDisconnect(nodeRef).remove();
 
         await runTransaction(nodeRef, () => {
           return {
             email,
+            displayName: displayName || "Stranger",
             status: "waiting",
             lastActive: Date.now()
           };
@@ -84,8 +93,7 @@ export function useMatchmaking() {
 
         let claiming = false;
 
-        // To match, we look at the queue
-        const onQueueChange = onValue(queueRef, async (snapshot) => {
+        const onQueueChange = async (snapshot: any) => {
            if (abortRef.current) return;
            
            const data = snapshot.val();
@@ -93,120 +101,122 @@ export function useMatchmaking() {
 
            const keys = Object.keys(data);
            
-           // HIGHEST PRIORITY: Check if SOMEONE ELSE matched with us!
-           // We must never block this check with a lock.
            for (const key of keys) {
              const peer = data[key];
              if (key === nodeRef.key) {
-               // If this is our own node and it's suddenly matched
                if (peer.status === "matched") {
+                 console.log("[Matchmaking] Peer matched with our node!");
                  setMatching(false);
                  isMatchingRef.current = false;
+                 
+                 // Unsubscribe first to avoid duplicate events
                  if (unsubscribeRef.current) {
                    unsubscribeRef.current();
                    unsubscribeRef.current = null;
+                 } else {
+                    // Fallback cleanup if unsubscribeRef was not yet populated (rare race condition)
+                    off(queueRef, "value", onQueueChange);
+                    if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
                  }
-                 // If they set our roomId and peer email
-                 onMatched(peer.roomId, peer.peer, "offerer");
+                 
+                 onMatched(peer.roomId, peer.peer, peer.peerName, "offerer");
                  remove(nodeRef).catch(console.error);
                  myQueueRef.current = null;
-                 return; // We matched! Stop looking at the queue entirely.
+                 return;
                }
              }
            }
 
-           // SECOND PRIORITY: If we are not matched, try to claim someone else.
-           // Use a lock to prevent concurrent overlapping transactions from spanning out of control.
            if (claiming || abortRef.current) return;
            claiming = true;
            
            try {
              for (const key of keys) {
                if (abortRef.current || myQueueRef.current === null) break;
-               if (key === nodeRef.key) continue; // Skip our own active node BEFORE ghost checks!
+               if (key === nodeRef.key) continue;
                
                const peer = data[key];
-               
-               // PREVENT GHOST MATCHES & SELF-MATCHING!
-               // If there is another node in the queue with the EXACT same email, 
-               // it's a stale ghost from a recent page refresh, or it's you testing in another tab.
-               // We strictly forbid matching with your own email to stop dead sessions from trapping you.
                if (peer.email === email) {
-                 console.log("[Matchmaking] Found another node with identically matching email (" + email + "). Deleting ghost node and skipping.");
-                 // Clean up the ghost node to keep the queue healthy
                  remove(ref(rtdb, `matchmaking/${key}`)).catch(console.warn);
                  continue; 
                }
                
                if (peer.status === "waiting") {
-                 // FIREBASE NODE PRUNING: Stale/Dead checks!
-                 // If the peer has not sent a heartbeat in 45 seconds, their browser is dead. Delete them immediately.
                  if (peer.lastActive && Date.now() - peer.lastActive > 45000) {
-                   console.log(`[Matchmaking] Pruning absolutely dead/stale queue node: ${key}`);
                    remove(ref(rtdb, `matchmaking/${key}`)).catch(console.warn);
                    continue;
                  }
 
-                 // Attempt to transactionally claim this peer
                  const peerRef = ref(rtdb, `matchmaking/${key}`);
                  const result = await runTransaction(peerRef, (currentData) => {
                    if (currentData && currentData.status === "waiting") {
                      currentData.status = "matched";
                      currentData.roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                      currentData.peer = email;
+                     currentData.peerName = displayName || "Stranger";
                      currentData.role = "offerer";
                      return currentData;
                    }
-                   return currentData; // abort transaction
+                   return currentData;
                  });
 
-                 // If transaction succeeded and we successfully secured the peer
                  if (result.committed && result.snapshot.val()?.status === "matched" && result.snapshot.val()?.peer === email) {
                    if (!abortRef.current) {
+                     console.log("[Matchmaking] Successfully claimed peer!");
                      setMatching(false);
                      isMatchingRef.current = false;
                      const roomId = result.snapshot.val().roomId;
-                     onMatched(roomId, peer.email, "answerer");
                      
                      if (unsubscribeRef.current) {
                        unsubscribeRef.current();
                        unsubscribeRef.current = null;
+                     } else {
+                        off(queueRef, "value", onQueueChange);
+                        if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
                      }
-                     // Remove our own waiting node from the queue
+                     
+                     onMatched(roomId, peer.email, peer.displayName, "answerer");
                      remove(nodeRef).catch(console.error);
                      myQueueRef.current = null;
                    }
-                   break; // Stop iterating, we found a match!
+                   break;
                  }
                }
-             }
-             
-             // If we iterated every key and found no one, log it.
-             if (keys.length <= 1) {
-               console.log("[Matchmaking] Queue is empty. Waiting for another peer to join...");
              }
            } finally {
              claiming = false;
            }
-        });
-
-        unsubscribeRef.current = () => {
-          off(queueRef, "value", onQueueChange);
-          if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
         };
 
+        // Assign unsubscribe function BEFORE attaching the listener
+        unsubscribeRef.current = () => {
+          console.log("[Matchmaking] Unsubscribing listener...");
+          off(queueRef, "value", onQueueChange);
+          if (heartbeatIntervalRef.current) {
+            clearInterval(heartbeatIntervalRef.current);
+            heartbeatIntervalRef.current = null;
+          }
+        };
+
+        onValue(queueRef, onQueueChange);
+
       } catch (e) {
-        console.error("Match error:", e);
+        console.error("[Matchmaking] Error in findMatch:", e);
         setMatching(false);
         isMatchingRef.current = false;
+        await stopPolling();
       }
     },
-    []
+    [stopPolling]
   );
 
   useEffect(() => {
-    return () => { stopPolling(); };
+    return () => {
+      console.log("[Matchmaking] Hook unmounting, stopping polling...");
+      stopPolling(); 
+    };
   }, [stopPolling]);
 
   return { findMatch, stopPolling, matching };
 }
+
