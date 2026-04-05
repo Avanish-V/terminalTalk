@@ -2,8 +2,4 @@
 
 TODO: Document your project here
 
-production ready
-
-name place of email
-
-OK
+RESTRICTION ADDED
