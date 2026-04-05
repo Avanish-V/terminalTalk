@@ -47,13 +47,15 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     pcRef.current = null;
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
+    pendingCandidates.current = []; // Critical: clear stale candidates between matches
+
     if (unsubscribeRef.current) {
       unsubscribeRef.current();
       unsubscribeRef.current = null;
     }
 
     // Cleanup room data manually ONLY on explicit hangup (not React strict mode remounts)
-    if (destroyRoom) {
+    if (destroyRoom && roomId) {
       const roomRef = ref(rtdb, `rooms/${roomId}`);
       remove(roomRef).catch(console.error);
     }
@@ -64,52 +66,61 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
   }, [roomId]);
 
   const sendEvent = useCallback(async (event: string, payload: any) => {
+    if (!roomId) return;
     try {
       console.log(`[WebRTC] Preparing to send ${event} from ${role}`, payload);
       const messagesRef = ref(rtdb, `rooms/${roomId}/messages`);
-      // Firebase throws an exception if payload contains Custom Prototypes like RTCSessionDescription.
-      // We safely convert it to a primitive plane object here:
       const safePayload = JSON.parse(JSON.stringify(payload));
-
-      console.log(`[WebRTC] Pushing ${event} safely to RTDB:`, safePayload);
       await push(messagesRef, {
         event,
         payload: safePayload,
         sender: role,
         timestamp: Date.now()
       });
-      console.log(`[WebRTC] Successfully sent ${event}`);
     } catch (e) {
       console.error("[WebRTC] Error sending signal event:", e);
     }
   }, [roomId, role]);
 
   const start = useCallback(async () => {
-    // Register onDisconnect to clean up on sudden closes
+    if (!roomId) {
+      console.log("[WebRTC] Aborting start: No roomId provided");
+      return;
+    }
+
+    // Track if cleanup was triggered while async functions were yielding
+    let aborted = false;
+    const oldCleanup = unsubscribeRef.current;
+    unsubscribeRef.current = () => {
+      if (oldCleanup) oldCleanup();
+      aborted = true;
+    };
+
     const roomRef = ref(rtdb, `rooms/${roomId}`);
     onDisconnect(roomRef).remove().catch(console.error);
 
-    // Get local media
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     } catch (err) {
       console.warn("Failed to get both video and audio. Trying audio only.", err);
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (err2) {
-        console.error("Failed to get any media devices:", err2);
-        // Fallback to empty stream so negotiation doesn't completely halt
         stream = new MediaStream();
       }
     }
+
+    // CRITICAL: If cleanup was called while waiting for the camera, instantly abort!
+    if (aborted || !pcRef) {
+      console.log("[WebRTC] Aborting start post-getUserMedia due to cleanup");
+      stream.getTracks().forEach(t => t.stop());
+      return;
+    }
+
     localStreamRef.current = stream;
     setLocalStream(stream);
 
-    // Create peer connection
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
