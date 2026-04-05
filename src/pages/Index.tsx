@@ -16,6 +16,7 @@ const Index = () => {
   const [peerName, setPeerName] = useState("");
   const [roomId, setRoomId] = useState("");
   const [role, setRole] = useState<"offerer" | "answerer">("offerer");
+  const [timeError, setTimeError] = useState<string | null>(null);
 
   const { user, loading, error: authError, signInWithGoogle, signOut } = useAuth();
   const { profile, loading: profileLoading, saveProfile } = useProfile(user);
@@ -23,7 +24,26 @@ const Index = () => {
 
   const userEmail = user?.email || "";
 
+  const isTimeValid = () => {
+    const currentHour = new Date().getHours();
+    return currentHour >= 20 && currentHour < 21;
+  };
+
+  const handleSignIn = () => {
+    if (!isTimeValid()) {
+      setTimeError("Service is only available between 8 PM and 9 PM.");
+      return;
+    }
+    setTimeError(null);
+    signInWithGoogle();
+  };
+
   const handleStart = () => {
+    if (!isTimeValid()) {
+      setTimeError("Service is only available between 8 PM and 9 PM.");
+      return;
+    }
+    setTimeError(null);
     if (!userEmail) return;
     if (!profile) {
       setState("profile");
@@ -49,6 +69,12 @@ const Index = () => {
   };
 
   const handleNext = async () => {
+    if (!isTimeValid()) {
+      handleEnd();
+      alert("Service is only available between 8 PM and 9 PM. The session has ended.");
+      return;
+    }
+
     await stopPolling();
     setRoomId("");
     setPeerEmail("");
@@ -83,10 +109,10 @@ const Index = () => {
           >
             <Landing
               onStart={handleStart}
-              onSignIn={signInWithGoogle}
+              onSignIn={handleSignIn}
               user={user}
               loading={loading || profileLoading}
-              authError={authError}
+              authError={authError || timeError}
               onSignOut={signOut}
             />
           </motion.div>

@@ -1,5 +1,6 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, Shield, Zap, Users, LogOut } from "lucide-react";
+import { ArrowRight, Shield, Zap, Users, LogOut, Clock, Lock } from "lucide-react";
 import TerminalLog from "./TerminalLog";
 import type { User } from "firebase/auth";
 
@@ -13,6 +14,41 @@ interface LandingProps {
 }
 
 const Landing = ({ onStart, onSignIn, onSignOut, user, loading, authError }: LandingProps) => {
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [timeMessage, setTimeMessage] = useState("");
+
+  useEffect(() => {
+    const checkAvailability = () => {
+      const now = new Date();
+      const currentHour = now.getHours();
+      // Original 8 PM - 9 PM check
+      const available = currentHour >= 20 && currentHour < 21; 
+      setIsAvailable(available);
+
+      if (!available) {
+        const next8PM = new Date(now);
+        if (currentHour >= 21) {
+            next8PM.setDate(now.getDate() + 1);
+        }
+        next8PM.setHours(20, 0, 0, 0); 
+        
+        const diffMs = next8PM.getTime() - now.getTime();
+        const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (diffHrs > 0) {
+           setTimeMessage(`Starts in ${diffHrs}h ${diffMins}m`);
+        } else {
+           setTimeMessage(`Starts in ${diffMins}m`);
+        }
+      }
+    };
+
+    checkAvailability();
+    const interval = setInterval(checkAvailability, 60000); // Verify every minute
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
       <motion.div
@@ -24,9 +60,9 @@ const Landing = ({ onStart, onSignIn, onSignOut, user, loading, authError }: Lan
         {/* Logo */}
         <div className="space-y-4">
           <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-terminal-green animate-pulse-green" />
-            <span className="font-mono text-xs text-tracking-terminal text-terminal-green">
-              Live — 847 engineers online
+            <div className={`w-3 h-3 rounded-full ${isAvailable ? 'bg-terminal-green animate-pulse-green' : 'bg-muted-foreground'}`} />
+            <span className={`font-mono text-xs text-tracking-terminal ${isAvailable ? 'text-terminal-green' : 'text-muted-foreground'}`}>
+              {isAvailable ? "Live — 847 engineers online" : "Next Session Starts at 8:00 PM"}
             </span>
           </div>
           <h1 className="text-4xl sm:text-5xl font-semibold heading-tracking text-foreground">
@@ -38,17 +74,42 @@ const Landing = ({ onStart, onSignIn, onSignOut, user, loading, authError }: Lan
         </div>
 
         {/* Terminal Boot Log */}
-        <div className="bg-surface rounded-lg p-5" style={{ boxShadow: "var(--card-shadow)" }}>
-          <TerminalLog />
-        </div>
+        {isAvailable && (
+          <div className="bg-surface rounded-lg p-5" style={{ boxShadow: "var(--card-shadow)" }}>
+            <TerminalLog />
+          </div>
+        )}
 
-        {/* Auth Section */}
+        {/* Auth Section / Offline Notice */}
         <div className="space-y-4">
           <label className="font-mono text-xs text-tracking-terminal text-muted-foreground">
-            Verify Your Identity
+            {isAvailable ? "Verify Your Identity" : "Daily Matching Event"}
           </label>
 
-          {loading ? (
+          {!isAvailable ? (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-surface border border-border rounded-lg p-6 flex flex-col items-center justify-center text-center space-y-4"
+              style={{ boxShadow: "var(--card-shadow)" }}
+            >
+              <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center text-foreground">
+                <Clock size={24} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-mono text-lg text-foreground font-bold tracking-tight">Opens at 8:00 PM</h3>
+                <p className="font-mono text-xs text-muted-foreground max-w-[280px]">
+                  To guarantee everyone finds a match instantly, Terminal only opens for one hour every day!
+                </p>
+              </div>
+              <div className="flex items-center gap-2 bg-background px-5 py-2.5 rounded-full border border-border mt-2">
+                <div className="w-2 h-2 rounded-full bg-terminal-green animate-pulse-green" />
+                <span className="font-mono text-sm text-foreground font-medium">
+                  {timeMessage}
+                </span>
+              </div>
+            </motion.div>
+          ) : loading ? (
             <div className="flex items-center gap-3 py-3">
               <div className="w-4 h-4 border-2 border-terminal-green border-t-transparent rounded-full animate-spin" />
               <span className="font-mono text-xs text-muted-foreground">Checking session...</span>
