@@ -1,4 +1,4 @@
-# Welcome to your Lovable project
+# Welcome to your TerminalTalk project
 
 TODO: Document your project here
 
