@@ -126,6 +126,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
     pc.ontrack = (event) => {
+      console.log(`[WebRTC] Received remote track: ${event.track.kind}`, event.streams[0]?.id);
       setRemoteStream(prev => {
         if (event.streams && event.streams[0]) return event.streams[0];
         if (prev) {
@@ -145,8 +146,13 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log("[WebRTC] Local ICE candidate generated");
         sendEvent("ice-candidate", { candidate: event.candidate.toJSON() });
       }
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log("[WebRTC] ICE gathering state:", pc.iceGatheringState);
     };
 
     // 3. Signaling Logic
@@ -158,15 +164,19 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
         case "ice-candidate":
           if (payload?.candidate) {
             if (pcRef.current.remoteDescription) {
+              console.log("[WebRTC] Adding remote ICE candidate");
               await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)).catch(console.warn);
             } else {
+              console.log("[WebRTC] Storing pending remote ICE candidate");
               pendingCandidates.current.push(payload.candidate);
             }
           }
           break;
         case "offer":
           if (payload?.sdp) {
+            console.log("[WebRTC] Received offer, setting remote description");
             await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            console.log("[WebRTC] Remote description set, processing pending candidates:", pendingCandidates.current.length);
             for (const c of pendingCandidates.current) {
               await pcRef.current.addIceCandidate(new RTCIceCandidate(c)).catch(console.warn);
             }
@@ -178,7 +188,9 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
           break;
         case "answer":
           if (payload?.sdp) {
+            console.log("[WebRTC] Received answer, setting remote description");
             await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            console.log("[WebRTC] Remote description set (answer), processing pending candidates:", pendingCandidates.current.length);
             for (const c of pendingCandidates.current) {
               await pcRef.current.addIceCandidate(new RTCIceCandidate(c)).catch(console.warn);
             }
@@ -187,7 +199,19 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
           break;
         case "ready":
           if (role === "offerer" && pcRef.current.connectionState !== "connected") {
-            console.log("[WebRTC] Received ready, creating/re-sending offer");
+            // If we already have an offer, re-send it in case they missed it
+            if (pcRef.current.signalingState === "have-local-offer") {
+              console.log("[WebRTC] Received ready and already have offer, re-sending current offer");
+              sendEvent("offer", { sdp: pcRef.current.localDescription?.toJSON() });
+              return;
+            }
+            
+            if (pcRef.current.signalingState !== "stable") {
+              console.log("[WebRTC] Received ready but signaling state is not stable, skipping new offer creation");
+              return;
+            }
+
+            console.log("[WebRTC] Received ready, creating new offer");
             const offer = await pcRef.current.createOffer();
             await pcRef.current.setLocalDescription(offer);
             sendEvent("offer", { sdp: pcRef.current.localDescription?.toJSON() || offer });

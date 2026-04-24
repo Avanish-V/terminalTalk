@@ -97,7 +97,7 @@ export function useMatchmaking() {
            if (abortRef.current) return;
            
            const data = snapshot.val();
-           if (!data) return;
+           if (!data || !isMatchingRef.current || abortRef.current) return;
 
            const keys = Object.keys(data);
            
@@ -127,7 +127,7 @@ export function useMatchmaking() {
              }
            }
 
-           if (claiming || abortRef.current) return;
+           if (claiming || abortRef.current || !isMatchingRef.current) return;
            claiming = true;
            
            try {
@@ -161,10 +161,10 @@ export function useMatchmaking() {
                  });
 
                  if (result.committed && result.snapshot.val()?.status === "matched" && result.snapshot.val()?.peer === email) {
-                   if (!abortRef.current) {
+                   if (!abortRef.current && isMatchingRef.current) {
                      console.log("[Matchmaking] Successfully claimed peer!");
+                     isMatchingRef.current = false; // Mark as done immediately
                      setMatching(false);
-                     isMatchingRef.current = false;
                      const roomId = result.snapshot.val().roomId;
                      
                      if (unsubscribeRef.current) {
