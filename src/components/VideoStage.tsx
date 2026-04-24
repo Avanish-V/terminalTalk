@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Mic, MicOff, Video, VideoOff, SkipForward, Flag, MessageSquare, X } from "lucide-react";
 import { useWebRTC } from "@/hooks/useWebRTC";
@@ -22,13 +22,15 @@ const VideoStage = ({ roomId, role, peerEmail, peerName, userEmail, onNext, onEn
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
+  const handleDisconnect = useCallback(() => {
+    setPeerDisconnected(true);
+  }, []);
+
   const { localStream, remoteStream, connectionState, start, cleanup, toggleMic, toggleCam } =
     useWebRTC({
       roomId,
       role,
-      onDisconnect: () => {
-        setPeerDisconnected(true);
-      },
+      onDisconnect: handleDisconnect,
     });
 
   useEffect(() => {

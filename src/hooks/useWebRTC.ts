@@ -80,7 +80,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
   const signalBuffer = useRef<{ event: string; payload: unknown }[]>([]);
 
   const start = useCallback(async () => {
-    if (!roomId) return;
+    if (!roomId || pcRef.current) return;
 
     let aborted = false;
     const oldCleanup = unsubscribeRef.current;
@@ -95,21 +95,27 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     // 1. Get Media
     let stream: MediaStream;
     try {
+      // Small delay to allow hardware to release from previous session
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log("[WebRTC] Requesting media for room:", roomId);
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     } catch (err) {
       console.warn("[WebRTC] Media failed, trying fallback", err);
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (err2) {
+        console.error("[WebRTC] All media requests failed", err2);
         stream = new MediaStream();
       }
     }
 
     if (aborted) {
+      console.log("[WebRTC] Start aborted during media request");
       stream.getTracks().forEach(t => t.stop());
       return;
     }
 
+    console.log(`[WebRTC] Obtained stream with ${stream.getTracks().length} tracks`);
     localStreamRef.current = stream;
     setLocalStream(stream);
 
@@ -167,7 +173,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
             pendingCandidates.current = [];
             const answer = await pcRef.current.createAnswer();
             await pcRef.current.setLocalDescription(answer);
-            sendEvent("answer", { sdp: answer });
+            sendEvent("answer", { sdp: pcRef.current.localDescription?.toJSON() || answer });
           }
           break;
         case "answer":
@@ -180,10 +186,16 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
           }
           break;
         case "ready":
-          if (role === "offerer" && !pcRef.current.localDescription) {
+          if (role === "offerer" && pcRef.current.connectionState !== "connected") {
+            console.log("[WebRTC] Received ready, creating/re-sending offer");
             const offer = await pcRef.current.createOffer();
             await pcRef.current.setLocalDescription(offer);
-            sendEvent("offer", { sdp: offer });
+            sendEvent("offer", { sdp: pcRef.current.localDescription?.toJSON() || offer });
+          }
+          break;
+        case "ping":
+          if (role === "answerer" && pcRef.current.connectionState !== "connected") {
+            sendEvent("ready", {}); // Respond to pings with ready if not connected
           }
           break;
       }
@@ -200,25 +212,34 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
 
     // 4. Initial Trigger
     if (role === "answerer") {
+      // Answerer: Send ready initially and then periodically until connected
       sendEvent("ready", {});
+      const readyInterval = setInterval(() => {
+        if (pcRef.current?.connectionState === "connected" || aborted) {
+          clearInterval(readyInterval);
+          return;
+        }
+        sendEvent("ready", {});
+      }, 3000);
     } else {
-      // Offerer: Periodically ping until connected or offer sent
+      // Offerer: Periodically ping until connected
       const pingInterval = setInterval(() => {
-        if (pcRef.current?.localDescription || pcRef.current?.connectionState === "connected" || aborted) {
+        if (pcRef.current?.connectionState === "connected" || aborted) {
           clearInterval(pingInterval);
           return;
         }
         sendEvent("ping", { timestamp: Date.now() });
       }, 3000);
       
-      // Initial offer if already ready
+      // Initial offer attempt
       setTimeout(async () => {
-        if (pcRef.current && !pcRef.current.localDescription && !aborted) {
+        if (pcRef.current && pcRef.current.connectionState !== "connected" && !aborted) {
+          console.log("[WebRTC] Sending initial offer");
           const offer = await pcRef.current.createOffer();
           await pcRef.current.setLocalDescription(offer);
-          sendEvent("offer", { sdp: offer });
+          sendEvent("offer", { sdp: pcRef.current.localDescription?.toJSON() || offer });
         }
-      }, 1000);
+      }, 1500);
     }
   }, [roomId, role, onDisconnectCb, sendEvent]);
 
