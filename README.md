@@ -6,4 +6,3 @@ update banner
 RESTRICTION ADDED IOTA
 push final
 STUN Added
-one side connection bug fixed
