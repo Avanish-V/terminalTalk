@@ -25,6 +25,7 @@ const Index = () => {
   const userEmail = user?.email || "";
 
   const isTimeValid = () => {
+    if (import.meta.env.VITE_BYPASS_TIME_RESTRICTION === "true") return true;
     const currentHour = new Date().getHours();
     return currentHour >= 20 && currentHour < 21;
   };

@@ -28,8 +28,8 @@ export function useAuth() {
     setError(null);
     try {
       await signInWithPopup(auth, googleProvider);
-    } catch (err: any) {
-      setError(err.message || "Failed to sign in with Google");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
     }
   }, []);
 
@@ -37,8 +37,8 @@ export function useAuth() {
     try {
       await firebaseSignOut(auth);
       setUser(null);
-    } catch (err: any) {
-      setError(err.message || "Failed to sign out");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
     }
   }, []);
 

@@ -34,7 +34,7 @@ const VideoStage = ({ roomId, role, peerEmail, peerName, userEmail, onNext, onEn
   useEffect(() => {
     start();
     return () => cleanup();
-  }, [roomId]);
+  }, [roomId, start, cleanup]);
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {

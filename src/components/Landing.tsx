@@ -21,8 +21,7 @@ const Landing = ({ onStart, onSignIn, onSignOut, user, loading, authError }: Lan
     const checkAvailability = () => {
       const now = new Date();
       const currentHour = now.getHours();
-      // Original 8 PM - 9 PM check
-      const available = currentHour >= 20 && currentHour < 21; 
+      const available = import.meta.env.VITE_BYPASS_TIME_RESTRICTION === "true" || (currentHour >= 20 && currentHour < 21); 
       setIsAvailable(available);
 
       if (!available) {

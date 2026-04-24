@@ -4,26 +4,21 @@ import { rtdb } from "@/lib/firebase";
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
+    // Global STUN Servers
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
-    // A TURN server is STRICTLY REQUIRED for connections crossing symmetric NATs (4G/5G/Corporate Wifi)
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
+
+    // ExpressTURN Servers (Configured via .env)
     {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject"
+      urls: import.meta.env.VITE_TURN_URL || "turn:free.expressturn.com:3478",
+      username: import.meta.env.VITE_TURN_USERNAME || "000000002092365468",
+      credential: import.meta.env.VITE_TURN_PASSWORD || "xuNsuAomcOWD96gimmwqkmNjzhg=",
     },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    }
   ],
+  iceCandidatePoolSize: 10,
 };
 
 interface UseWebRTCOptions {
@@ -65,7 +60,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     setConnectionState("closed");
   }, [roomId]);
 
-  const sendEvent = useCallback(async (event: string, payload: any) => {
+  const sendEvent = useCallback(async (event: string, payload: unknown) => {
     if (!roomId) return;
     try {
       console.log(`[WebRTC] Preparing to send ${event} from ${role}`, payload);
@@ -82,13 +77,11 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     }
   }, [roomId, role]);
 
-  const start = useCallback(async () => {
-    if (!roomId) {
-      console.log("[WebRTC] Aborting start: No roomId provided");
-      return;
-    }
+  const signalBuffer = useRef<{ event: string; payload: unknown }[]>([]);
 
-    // Track if cleanup was triggered while async functions were yielding
+  const start = useCallback(async () => {
+    if (!roomId) return;
+
     let aborted = false;
     const oldCleanup = unsubscribeRef.current;
     unsubscribeRef.current = () => {
@@ -99,11 +92,12 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     const roomRef = ref(rtdb, `rooms/${roomId}`);
     onDisconnect(roomRef).remove().catch(console.error);
 
+    // 1. Get Media
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     } catch (err) {
-      console.warn("Failed to get both video and audio. Trying audio only.", err);
+      console.warn("[WebRTC] Media failed, trying fallback", err);
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (err2) {
@@ -111,9 +105,7 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
       }
     }
 
-    // CRITICAL: If cleanup was called while waiting for the camera, instantly abort!
-    if (aborted || !pcRef) {
-      console.log("[WebRTC] Aborting start post-getUserMedia due to cleanup");
+    if (aborted) {
       stream.getTracks().forEach(t => t.stop());
       return;
     }
@@ -121,144 +113,112 @@ export function useWebRTC({ roomId, role, onDisconnect: onDisconnectCb }: UseWeb
     localStreamRef.current = stream;
     setLocalStream(stream);
 
+    // 2. Initialize PeerConnection
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
-    // Add local tracks
-    stream.getTracks().forEach((track) => {
-      console.log(`[WebRTC] Adding local track: ${track.kind}`);
-      pc.addTrack(track, stream);
-    });
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-    // Handle remote tracks
     pc.ontrack = (event) => {
-      console.log("[WebRTC] Received remote track:", event.track.kind);
-      setRemoteStream((prevStream) => {
-        // We MUST use the browser's native stream instance directly and keep it stable!
-        // Re-creating MediaStreams can stall playback.
-        if (event.streams && event.streams.length > 0) {
-          console.log("[WebRTC] Native streams provided by ontrack. Using streams[0].");
-          return event.streams[0];
+      setRemoteStream(prev => {
+        if (event.streams && event.streams[0]) return event.streams[0];
+        if (prev) {
+          if (!prev.getTracks().includes(event.track)) prev.addTrack(event.track);
+          return prev;
         }
-
-        // Fallback if browser doesn't send streams[]
-        if (prevStream) {
-          if (!prevStream.getTracks().includes(event.track)) {
-            console.log("[WebRTC] Falling back to manual prevStream.addTrack");
-            prevStream.addTrack(event.track);
-          }
-          return prevStream; // Keep same reference
-        }
-
-        console.log("[WebRTC] No prev stream, creating new MediaStream with first track.");
         return new MediaStream([event.track]);
       });
     };
 
     pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] Connection state changed to: ${pc.connectionState}`);
       setConnectionState(pc.connectionState);
-      if (
-        pc.connectionState === "disconnected" ||
-        pc.connectionState === "failed"
-      ) {
+      if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
         onDisconnectCb?.();
       }
     };
 
-    // Handle ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log("[WebRTC] Gathered ICE candidate.");
         sendEvent("ice-candidate", { candidate: event.candidate.toJSON() });
-      } else {
-        console.log("[WebRTC] Finished gathering ICE candidates.");
       }
     };
 
-    // Signaling via Realtime Database
-    const messagesRef = ref(rtdb, `rooms/${roomId}/messages`);
-    const onMessageAdded = onChildAdded(messagesRef, async (snapshot) => {
-      const data = snapshot.val();
-      if (!data || data.sender === role) return;
+    // 3. Signaling Logic
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const processSignal = async (event: string, payload: any) => {
+      if (!pcRef.current) return;
 
-      console.log(`[WebRTC] Received ${data.event} from ${data.sender}`, data.payload);
-
-      switch (data.event) {
+      switch (event) {
         case "ice-candidate":
-          if (data.payload?.candidate && pcRef.current) {
-            const candidateList = pendingCandidates.current;
+          if (payload?.candidate) {
             if (pcRef.current.remoteDescription) {
-              try {
-                await pcRef.current.addIceCandidate(new RTCIceCandidate(data.payload.candidate));
-                console.log("[WebRTC] Added ICE candidate successfully.");
-              } catch (e) {
-                console.warn("[WebRTC] Failed to add ICE candidate:", e);
-              }
+              await pcRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)).catch(console.warn);
             } else {
-              console.log("[WebRTC] Remote description missing, buffering ICE candidate.");
-              candidateList.push(data.payload.candidate);
+              pendingCandidates.current.push(payload.candidate);
             }
           }
           break;
-
         case "offer":
-          if (data.payload?.sdp && pcRef.current) {
-            console.log("[WebRTC] Setting remote description from offer...");
-            await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.payload.sdp));
-            // Flush any pending candidates
+          if (payload?.sdp) {
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
             for (const c of pendingCandidates.current) {
               await pcRef.current.addIceCandidate(new RTCIceCandidate(c)).catch(console.warn);
             }
             pendingCandidates.current = [];
-
-            console.log("[WebRTC] Creating answer...");
             const answer = await pcRef.current.createAnswer();
             await pcRef.current.setLocalDescription(answer);
             sendEvent("answer", { sdp: answer });
           }
           break;
-
         case "answer":
-          if (data.payload?.sdp && pcRef.current) {
-            console.log("[WebRTC] Setting remote description from answer...");
-            await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.payload.sdp));
-            // Flush any pending candidates
+          if (payload?.sdp) {
+            await pcRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
             for (const c of pendingCandidates.current) {
               await pcRef.current.addIceCandidate(new RTCIceCandidate(c)).catch(console.warn);
             }
             pendingCandidates.current = [];
           }
           break;
-
         case "ready":
-          if (role === "offerer" && pcRef.current && !pcRef.current.localDescription) {
-            console.log("[WebRTC] Receiver is ready. Creating offer...");
+          if (role === "offerer" && !pcRef.current.localDescription) {
             const offer = await pcRef.current.createOffer();
             await pcRef.current.setLocalDescription(offer);
             sendEvent("offer", { sdp: offer });
           }
           break;
       }
+    };
+
+    const messagesRef = ref(rtdb, `rooms/${roomId}/messages`);
+    const onMessageAdded = onChildAdded(messagesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data || data.sender === role) return;
+      processSignal(data.event, data.payload);
     });
 
     unsubscribeRef.current = () => off(messagesRef, "child_added", onMessageAdded);
 
-    // Answerer signals readiness; offerer also sends a ping in case answerer was first
+    // 4. Initial Trigger
     if (role === "answerer") {
-      console.log("[WebRTC] Connecting as answerer, sending ready signal.");
       sendEvent("ready", {});
     } else {
-      console.log("[WebRTC] Connecting as offerer, setting backup 2s timeout for offer.");
-      // In case answerer is already subscribed, send offer after a short delay as fallback
+      // Offerer: Periodically ping until connected or offer sent
+      const pingInterval = setInterval(() => {
+        if (pcRef.current?.localDescription || pcRef.current?.connectionState === "connected" || aborted) {
+          clearInterval(pingInterval);
+          return;
+        }
+        sendEvent("ping", { timestamp: Date.now() });
+      }, 3000);
+      
+      // Initial offer if already ready
       setTimeout(async () => {
-        if (pcRef.current && !pcRef.current.localDescription) {
-          console.log("[WebRTC] Outputting backup 2s timeout offer...");
+        if (pcRef.current && !pcRef.current.localDescription && !aborted) {
           const offer = await pcRef.current.createOffer();
           await pcRef.current.setLocalDescription(offer);
           sendEvent("offer", { sdp: offer });
         }
-      }, 2000);
+      }, 1000);
     }
   }, [roomId, role, onDisconnectCb, sendEvent]);
 

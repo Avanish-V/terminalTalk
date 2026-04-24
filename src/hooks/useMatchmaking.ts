@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { ref, push, remove, onValue, off, runTransaction, onDisconnect, serverTimestamp } from "firebase/database";
+import { ref, push, remove, onValue, off, runTransaction, onDisconnect, serverTimestamp, DatabaseReference, DataSnapshot } from "firebase/database";
 import { rtdb } from "@/lib/firebase";
 
 export function useMatchmaking() {
   const [matching, setMatching] = useState(false);
-  const myQueueRef = useRef<any>(null);
+  const myQueueRef = useRef<DatabaseReference | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const abortRef = useRef(false);
   const isMatchingRef = useRef(false);
@@ -93,7 +93,7 @@ export function useMatchmaking() {
 
         let claiming = false;
 
-        const onQueueChange = async (snapshot: any) => {
+        const onQueueChange = async (snapshot: DataSnapshot) => {
            if (abortRef.current) return;
            
            const data = snapshot.val();
